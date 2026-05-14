@@ -5,64 +5,67 @@ interface DiscordNotification {
   status: 'UP' | 'DOWN' | 'INVESTIGATING' | 'RESOLVED';
   message: string;
   affected: string;
+  latency?: number;
   incidentUrl?: string;
 }
 
-export async function sendDiscordWebhook(webhookUrl: string, data: DiscordNotification) {
-  const colors = {
-    UP: 3066993, // Green
-    RESOLVED: 3066993,
-    DOWN: 15158332, // Red
-    INVESTIGATING: 3447003, // Blue
-  };
+const STATUS_COLORS: Record<DiscordNotification['status'], number> = {
+  UP: 0x10b981,
+  RESOLVED: 0x10b981,
+  DOWN: 0xef4444,
+  INVESTIGATING: 0x3b82f6,
+};
 
-  const statusText = {
-    UP: 'back up',
-    RESOLVED: 'back up',
-    DOWN: 'down',
-    INVESTIGATING: 'experiencing issues',
-  };
+const STATUS_LABELS: Record<DiscordNotification['status'], string> = {
+  UP: 'Operational',
+  RESOLVED: 'Resolved',
+  DOWN: 'Outage',
+  INVESTIGATING: 'Investigating',
+};
 
-  const embed = {
-    title: `${data.affected} is ${statusText[data.status]}`,
-    description: '',
-    color: colors[data.status],
-    fields: [
+export async function sendDiscordWebhook(webhookUrl: string, data: DiscordNotification): Promise<void> {
+  const latencyText = data.latency != null ? `${data.latency}ms` : 'N/A';
+
+  const body: Record<string, unknown> = {
+    embeds: [
       {
-        name: data.status === 'DOWN' ? 'Investigating' : 'Resolved',
-        value: data.message,
-      },
-      {
-        name: 'Affected',
-        value: data.affected,
+        color: STATUS_COLORS[data.status],
+        title: data.title,
+        description: data.message,
+        fields: [
+          { name: 'System', value: `\`${data.affected}\``, inline: true },
+          { name: 'Latency', value: `\`${latencyText}\``, inline: true },
+          { name: 'Status', value: `\`${STATUS_LABELS[data.status]}\``, inline: true },
+        ],
+        footer: {
+          text: 'VexaNode Infrastructure',
+        },
+        timestamp: new Date().toISOString(),
       },
     ],
-    footer: {
-      text: `Updated: ${new Date().toLocaleString()}`,
-    },
-    timestamp: new Date().toISOString(),
+    flags: 1 << 15,
   };
 
-  const body = {
-    embeds: [embed],
-    components: data.incidentUrl ? [
+  if (data.incidentUrl) {
+    body.components = [
       {
         type: 1,
         components: [
           {
             type: 2,
             style: 5,
-            label: 'View incident',
+            label: 'View Status Page',
             url: data.incidentUrl,
-          }
-        ]
-      }
-    ] : []
-  };
+          },
+        ],
+      },
+    ];
+  }
 
   try {
     await axios.post(webhookUrl, body);
   } catch (error) {
-    console.error('Error sending Discord webhook:', error);
+    console.error('[Discord Webhook] Failed to send notification:', error);
+    throw error;
   }
 }

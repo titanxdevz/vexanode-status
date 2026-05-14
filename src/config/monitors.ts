@@ -3,4 +3,6 @@ export const MONITORS = [
   { name: 'Panel', url: 'https://panel.vexanode.cloud/' },
   { name: 'VPS Nodes', url: 'https://vps.vexanode.cloud/' },
   { name: 'Billing Panel', url: 'https://billing.vexanode.cloud/' },
+  { name: 'Omega Node', url: 'https://omega.vexanode.cloud/' },
+
 ];

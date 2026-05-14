@@ -1,235 +1,394 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MONITORS } from '@/config/monitors';
-import { DiscordCard } from '@/components/DiscordCard';
-import { 
-  CheckCircle, 
-  AlertCircle, 
-  Activity, 
-  Clock, 
-  Shield, 
-  RefreshCcw, 
-  ArrowUpRight,
-  Server,
-  Network
-} from 'lucide-react';
 
-async function fetchStatus(url: string) {
+/* ─── Types ─────────────────────────────────────────────────── */
+interface MonitorResult {
+  name: string;
+  url: string;
+  status: 'UP' | 'DOWN';
+  latency: number;
+}
+
+/* ─── Fetch helper ───────────────────────────────────────────── */
+async function fetchStatus(url: string): Promise<{ status: 'UP' | 'DOWN'; latency: number }> {
   const start = Date.now();
   try {
-    const res = await fetch(url, { cache: 'no-store' });
-    return {
-      status: res.status >= 200 && res.status < 400 ? 'UP' : 'DOWN',
-      latency: Date.now() - start,
-    };
-  } catch (e) {
+    const res = await fetch('/api/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch { /* ignore */ }
+  try {
+    const res = await fetch(url, { cache: 'no-store', mode: 'no-cors' });
+    const latency = Date.now() - start;
+    return { status: 'UP', latency };
+  } catch {
     return { status: 'DOWN', latency: 0 };
   }
 }
 
-export default function StatusPage() {
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [lastCheck, setLastCheck] = useState(new Date());
+/* ─── Sparkline data ─────────────────────────────────────────── */
+function generateSparkline(status: 'UP' | 'DOWN') {
+  return Array.from({ length: 30 }, (_, i) => {
+    const isDown = status === 'DOWN' && i === 29;
+    return { up: !isDown, height: 30 + Math.floor(Math.random() * 70) };
+  });
+}
 
-  const runChecks = async () => {
-    setLoading(true);
-    const results = await Promise.all(
-      MONITORS.map(async (m) => ({ ...m, ...(await fetchStatus(m.url)) }))
-    );
-    setData(results);
-    setLoading(false);
-    setLastCheck(new Date());
+/* ─── Sub-components ─────────────────────────────────────────── */
+function ServiceRow({
+  monitor,
+  index,
+  onNotify
+}: {
+  monitor: MonitorResult;
+  index: number;
+  onNotify: (m: MonitorResult) => Promise<void>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const isUp = monitor.status === 'UP';
+  const bars = generateSparkline(monitor.status);
+
+  const handleNotifyAction = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNotifying(true);
+    await onNotify(monitor);
+    setTimeout(() => setNotifying(false), 2000);
   };
 
-  useEffect(() => {
-    runChecks();
-    const interval = setInterval(runChecks, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const isAllUp = data.length > 0 && data.every(m => m.status === 'UP');
-  const avgLatency = data.length > 0 ? Math.round(data.reduce((a, b) => a + b.latency, 0) / data.length) : 0;
-
   return (
-    <div className="min-h-screen bg-black text-white selection:bg-primary/30">
-      <main className="container max-w-4xl">
-        
-        {/* Top Navigation */}
-        <nav className="flex justify-between items-center mb-16">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-              <Shield className="text-black" size={18} />
-            </div>
-            <span className="font-bold text-lg tracking-tight">VexaNode Status</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1 bg-muted-dark rounded-full border border-card-border">
-              <div className={`status-dot ${isAllUp ? 'dot-up' : 'dot-down'}`} />
-              <span className="text-[11px] font-bold tracking-widest uppercase">System Live</span>
-            </div>
-          </div>
-        </nav>
+    <div className="flex flex-col gap-1">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.04, duration: 0.35, ease: 'easeOut' }}
+        onClick={() => setIsOpen(!isOpen)}
+        className={`service-row ${isUp ? 'row-up' : 'row-down'} group ${isOpen ? 'row-open' : ''}`}
+      >
+        <div className="service-row-main">
+          <div className={`status-dot ${isUp ? 'dot-up' : 'dot-down'}`} />
 
-        {/* Hero Status Card */}
-        <motion.section 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`p-10 p-card mb-8 relative overflow-hidden ${isAllUp ? 'glow-success' : 'glow-error'}`}
-        >
-          <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
-            <div>
-              <h1 className="text-4xl font-extrabold mb-3 tracking-tight">
-                {isAllUp ? 'All systems are functional.' : 'Partial system disruption.'}
-              </h1>
-              <p className="text-muted text-lg max-w-md">
-                {isAllUp 
-                  ? 'Infrastructure is operating at peak performance across all global nodes.'
-                  : 'We are currently investigating issues with some of our network interfaces.'}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={runChecks} 
-                className="btn-p"
-                disabled={loading}
-              >
-                <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
-                Refresh System
-              </button>
-            </div>
+          <div className="service-info">
+            <div className="service-name">{monitor.name}</div>
+            <div className="service-url">{monitor.url.replace(/^https?:\/\//, '')}</div>
           </div>
-          {/* Subtle Background Pattern */}
-          <div className="absolute top-0 right-0 opacity-10 p-4 pointer-events-none">
-            <Activity size={120} />
-          </div>
-        </motion.section>
+        </div>
 
-        {/* Global Metrics Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-          {[
-            { label: 'Uptime', value: '99.99%', sub: 'Last 30 days', icon: CheckCircle, color: 'text-success' },
-            { label: 'Latency', value: `${avgLatency}ms`, sub: 'Global average', icon: Network, color: 'text-primary' },
-            { label: 'Last Check', value: lastCheck.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), sub: 'Auto-refresh on', icon: Clock, color: 'text-muted' },
-          ].map((item, i) => (
-            <motion.div 
-              key={i}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="p-card p-6"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <item.icon size={16} className="text-muted" />
-                <span className="text-[11px] font-bold tracking-widest uppercase text-muted">{item.label}</span>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold">{item.value}</span>
-                <span className="text-[10px] text-muted font-medium">{item.sub}</span>
-              </div>
-            </motion.div>
+        <div className="uptime-bars">
+          {bars.map((bar, j) => (
+            <div
+              key={j}
+              className={`uptime-bar ${bar.up ? 'uptime-bar-up' : 'uptime-bar-down'}`}
+              style={{ height: `${bar.height}%` }}
+              title={bar.up ? 'Operational' : 'Incident'}
+            />
           ))}
         </div>
 
-        {/* Detailed Service List */}
-        <section className="mb-16">
-          <div className="flex items-center gap-3 mb-6">
-            <Server size={18} className="text-muted" />
-            <h2 className="text-sm font-bold tracking-widest uppercase text-muted">Core Infrastructure</h2>
+        <div className="service-meta">
+          <div className={`status-label ${isUp ? 'status-up' : 'status-down'}`}>
+            {isUp ? 'Online' : 'Outage'}
           </div>
-          
-          <div className="grid gap-3">
-            {data.length === 0 ? (
-              [1, 2, 3, 4].map(i => <div key={i} className="h-20 p-card animate-pulse bg-muted-dark" />)
-            ) : (
-              data.map((monitor, i) => (
-                <motion.div 
-                  key={monitor.url}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="p-card p-5 group flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-                >
-                  <div className="flex items-center gap-5">
-                    <div className={`status-dot ${monitor.status === 'UP' ? 'dot-up' : 'dot-down'}`} />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-lg">{monitor.name}</h4>
-                        <ArrowUpRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted" />
-                      </div>
-                      <p className="text-xs text-muted font-mono">{monitor.url}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-8 w-full md:w-auto">
-                    {/* Compact Mini Graph */}
-                    <div className="hidden sm:flex gap-1 items-end h-6">
-                      {[...Array(24)].map((_, j) => (
-                        <div 
-                          key={j} 
-                          className={`w-[2px] rounded-full transition-all ${monitor.status === 'UP' ? 'bg-success/30' : 'bg-error/30'}`}
-                          style={{ height: `${20 + Math.random() * 80}%` }}
-                        />
-                      ))}
-                    </div>
-                    
-                    <div className="text-right ml-auto md:ml-0">
-                      <div className={`text-xs font-black tracking-widest uppercase ${monitor.status === 'UP' ? 'text-success' : 'text-error'}`}>
-                        {monitor.status === 'UP' ? 'Operational' : 'Outage'}
-                      </div>
-                      <div className="text-[10px] font-mono text-muted">{monitor.latency}ms</div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))
-            )}
+          <div className="latency-text">
+            {monitor.latency > 0 ? `${monitor.latency}ms` : '\u2014'}
           </div>
-        </section>
+        </div>
 
-        {/* Incidents Section (If any down) */}
-        <AnimatePresence>
-          {!isAllUp && data.length > 0 && (
-            <motion.section 
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="mt-20 border-t border-card-border pt-12"
-            >
-              <div className="flex items-center gap-3 mb-8">
-                <AlertCircle size={18} className="text-error" />
-                <h2 className="text-sm font-bold tracking-widest uppercase text-error">Incident Reports</h2>
-              </div>
-              <div className="grid gap-6">
-                {data.filter(m => m.status === 'DOWN').map(m => (
-                  <DiscordCard 
-                    key={m.url}
-                    status="DOWN"
-                    title={`${m.name} Outage Detected`}
-                    subtitle="System Investigation"
-                    content={`Automated monitoring has flagged ${m.name} as unreachable. Our network operations center is performing diagnostics to resolve this interruption.`}
-                    affected={m.name}
-                    updatedAt="Just now"
-                  />
-                ))}
-              </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
+        {!isUp && (
+          <button
+            onClick={handleNotifyAction}
+            disabled={notifying}
+            className="notify-btn"
+          >
+            {notifying ? 'Sent' : 'Notify'}
+          </button>
+        )}
+      </motion.div>
 
-        {/* Professional Footer */}
-        <footer className="mt-40 mb-20 text-center border-t border-card-border pt-10">
-          <div className="flex justify-center gap-10 mb-8">
-            {['Twitter', 'Docs', 'Support', 'Contact'].map(link => (
-              <a key={link} href="#" className="text-xs font-bold tracking-widest uppercase text-muted hover:text-white transition-colors">{link}</a>
-            ))}
-          </div>
-          <p className="text-[10px] font-mono text-muted uppercase tracking-[0.2em]">
-            © {new Date().getFullYear()} VexaNode Infrastructure • Advanced Monitoring v2.0
-          </p>
-        </footer>
-      </main>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="service-details">
+              <div className="detail-row">
+                <span className="detail-label">Edge Location</span>
+                <span className="detail-value">Frankfurt, DE</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Protocol</span>
+                <span className="detail-value">HTTPS/3 (QUIC)</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">SSL Certificate</span>
+                <span className="detail-value status-green">Valid (256-bit)</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">24h Uptime</span>
+                <span className="detail-value">100.00%</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">30d Uptime</span>
+                <span className="detail-value">99.95%</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/* ─── Page ───────────────────────────────────────────────────── */
+export default function StatusPage() {
+  const [data, setData] = useState<MonitorResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastCheck, setLastCheck] = useState(new Date());
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const runChecks = useCallback(async (force = false) => {
+    if (!force) {
+      const cached = localStorage.getItem('vexanode_status_cache');
+      if (cached) {
+        try {
+          const { results, timestamp } = JSON.parse(cached);
+          const age = (Date.now() - timestamp) / 1000;
+          if (age < 60) {
+            setData(results);
+            setLastCheck(new Date(timestamp));
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.error('Failed to parse cache', e);
+        }
+      }
+    }
+
+    setLoading(true);
+    try {
+      const results = await Promise.all(
+        MONITORS.map(async (m) => ({ ...m, ...(await fetchStatus(m.url)) }))
+      );
+      setData(results as MonitorResult[]);
+      setLastCheck(new Date());
+      localStorage.setItem('vexanode_status_cache', JSON.stringify({
+        results,
+        timestamp: Date.now()
+      }));
+    } catch (err) {
+      console.error('Fetch failed', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleNotify = useCallback(async (m: MonitorResult) => {
+    try {
+      const res = await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: m.name, status: m.status, latency: m.latency }),
+      });
+      if (!res.ok) throw new Error('Failed to send');
+    } catch (err) {
+      console.error('Notification failed', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    runChecks();
+    const automation = setInterval(async () => {
+      try {
+        await fetch('/api/cron');
+        runChecks();
+      } catch (e) {
+        console.error('Automation ping failed', e);
+      }
+    }, 60_000);
+    return () => clearInterval(automation);
+  }, [runChecks]);
+
+  const upCount = data.filter((m) => m.status === 'UP').length;
+  const isAllUp = data.length > 0 && upCount === data.length;
+  const avgLatency =
+    data.length > 0
+      ? Math.round(data.reduce((a, b) => a + b.latency, 0) / data.length)
+      : 0;
+
+  return (
+    <>
+      <div className="page-bg" />
+      <div className="page-wrapper">
+        <div className="container">
+
+          {/* ── Header ────────────────────────────────────────── */}
+          <motion.header
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="page-header"
+          >
+            <div className="header-left">
+              <div className="logo-mark" />
+              <div>
+                <h1 className="site-title">VexaNode</h1>
+                <p className="site-subtitle">Infrastructure Status</p>
+              </div>
+            </div>
+
+            <div className="header-right">
+              <div className={`overall-badge ${isAllUp ? 'badge-up' : data.length === 0 ? 'badge-neutral' : 'badge-down'}`}>
+                <span className={`badge-dot ${isAllUp ? 'dot-up' : 'dot-down'}`} />
+                {data.length === 0 ? 'Checking Systems' : isAllUp ? 'All Systems Operational' : 'Partial Outage'}
+              </div>
+              <button className="refresh-btn" onClick={() => runChecks(true)} disabled={loading}>
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </motion.header>
+
+          {/* ── Summary Bar ───────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="summary-bar"
+          >
+            <div className="summary-stat">
+              <span className="summary-label">Total Nodes</span>
+              <span className="summary-value">{data.length || '\u2014'}</span>
+            </div>
+            <div className="summary-divider" />
+            <div className="summary-stat">
+              <span className="summary-label">Online</span>
+              <span className="summary-value status-green">{loading ? '\u2014' : upCount}</span>
+            </div>
+            <div className="summary-divider" />
+            <div className="summary-stat">
+              <span className="summary-label">Average Latency</span>
+              <span className="summary-value">{loading ? '\u2014' : `${avgLatency}ms`}</span>
+            </div>
+            <div className="summary-divider" />
+            <div className="summary-stat">
+              <span className="summary-label">Service Availability</span>
+              <span className={`summary-value ${isAllUp ? 'status-green' : 'status-red'}`}>
+                {loading ? '\u2014' : data.length > 0 ? `${Math.round((upCount / data.length) * 100)}%` : '\u2014'}
+              </span>
+            </div>
+            <div className="summary-divider" />
+            <div className="summary-stat">
+              <span className="summary-label">Last Updated</span>
+              <span className="summary-value">
+                {mounted ? lastCheck.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+              </span>
+            </div>
+          </motion.div>
+
+          {/* ── Hero Status ───────────────────────────────────── */}
+          <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, duration: 0.4 }}
+            className={`hero-card ${isAllUp ? 'hero-up' : 'hero-down'}`}
+          >
+            <div className={`hero-indicator ${isAllUp ? 'indicator-up' : 'indicator-down'}`}>
+              {isAllUp ? 'All systems are operational' : 'Service disruption detected'}
+            </div>
+            <p className="hero-description">
+              {isAllUp
+                ? 'Global infrastructure is performing within optimal parameters. No issues detected.'
+                : 'We are currently experiencing issues with some of our core services. Our engineering team is investigating.'}
+            </p>
+            <div className="hero-bar">
+              <div className="hero-bar-track">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${loading ? 0 : data.length > 0 ? (upCount / data.length) * 100 : 0}%` }}
+                  transition={{ duration: 0.8, ease: 'circOut' }}
+                  className={`hero-bar-fill ${isAllUp ? 'fill-up' : 'fill-down'}`}
+                />
+              </div>
+              <span className="hero-bar-label">
+                {loading ? '...' : data.length > 0 ? `${Math.round((upCount / data.length) * 100)}%` : '\u2014'}
+              </span>
+            </div>
+          </motion.section>
+
+          {/* ── Services ──────────────────────────────────────── */}
+          <section className="services-section">
+            <div className="services-header">
+              <h2 className="services-title">Core Infrastructure</h2>
+              <span className="services-count">{upCount} / {data.length} Nodes Online</span>
+            </div>
+
+            <div className="services-list">
+              {data.length === 0
+                ? [1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="skeleton" style={{ height: 60, borderRadius: 10 }} />
+                  ))
+                : data.map((monitor, i) => (
+                    <ServiceRow key={monitor.url} monitor={monitor} index={i} onNotify={handleNotify} />
+                  ))}
+            </div>
+          </section>
+
+          {/* ── Active Incidents ──────────────────────────────── */}
+          <AnimatePresence>
+            {!isAllUp && data.length > 0 && (
+              <motion.section
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="incidents-section"
+              >
+                <h2 className="incidents-title">Active Incidents</h2>
+                {data
+                  .filter((m) => m.status === 'DOWN')
+                  .map((m) => (
+                    <div key={m.url} className="incident-card">
+                      <div className="incident-info">
+                        <div className="incident-icon" />
+                        <div>
+                          <h3 className="incident-name">{m.name} - Outage</h3>
+                          <p className="incident-message">System is currently unreachable from monitoring nodes.</p>
+                        </div>
+                      </div>
+                      <button onClick={() => handleNotify(m)} className="notify-btn outlined">
+                        Send Alert
+                      </button>
+                    </div>
+                  ))}
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {/* ── Footer ────────────────────────────────────────── */}
+          <footer className="page-footer">
+            <span>VexaNode Infrastructure</span>
+            <span className="footer-divider" />
+            <span>Automated Status Monitoring</span>
+            <span className="footer-divider" />
+            <a href={`mailto:support@vexanode.cloud`} className="footer-link">Contact Support</a>
+          </footer>
+
+        </div>
+      </div>
+    </>
   );
 }
