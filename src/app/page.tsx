@@ -4,7 +4,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MONITORS } from '@/config/monitors';
 
-/* ─── Types ─────────────────────────────────────────────────── */
 interface MonitorResult {
   name: string;
   url: string;
@@ -12,7 +11,6 @@ interface MonitorResult {
   latency: number;
 }
 
-/* ─── Fetch helper ───────────────────────────────────────────── */
 async function fetchStatus(url: string): Promise<{ status: 'UP' | 'DOWN'; latency: number }> {
   const start = Date.now();
   try {
@@ -26,7 +24,7 @@ async function fetchStatus(url: string): Promise<{ status: 'UP' | 'DOWN'; latenc
       const data = await res.json();
       return data;
     }
-  } catch { /* ignore */ }
+  } catch {}
   try {
     const res = await fetch(url, { cache: 'no-store', mode: 'no-cors' });
     const latency = Date.now() - start;
@@ -36,7 +34,6 @@ async function fetchStatus(url: string): Promise<{ status: 'UP' | 'DOWN'; latenc
   }
 }
 
-/* ─── Sparkline data ─────────────────────────────────────────── */
 function generateSparkline(status: 'UP' | 'DOWN') {
   return Array.from({ length: 30 }, (_, i) => {
     const isDown = status === 'DOWN' && i === 29;
@@ -44,27 +41,16 @@ function generateSparkline(status: 'UP' | 'DOWN') {
   });
 }
 
-/* ─── Sub-components ─────────────────────────────────────────── */
 function ServiceRow({
   monitor,
   index,
-  onNotify
 }: {
   monitor: MonitorResult;
   index: number;
-  onNotify: (m: MonitorResult) => Promise<void>;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifying, setNotifying] = useState(false);
   const isUp = monitor.status === 'UP';
   const bars = generateSparkline(monitor.status);
-
-  const handleNotifyAction = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNotifying(true);
-    await onNotify(monitor);
-    setTimeout(() => setNotifying(false), 2000);
-  };
 
   return (
     <div className="flex flex-col gap-1">
@@ -73,17 +59,15 @@ function ServiceRow({
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: index * 0.04, duration: 0.35, ease: 'easeOut' }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`service-row ${isUp ? 'row-up' : 'row-down'} group ${isOpen ? 'row-open' : ''}`}
+        className={`service-row ${isUp ? '' : 'row-down'} group ${isOpen ? 'row-open' : ''}`}
       >
         <div className="service-row-main">
           <div className={`status-dot ${isUp ? 'dot-up' : 'dot-down'}`} />
-
           <div className="service-info">
             <div className="service-name">{monitor.name}</div>
             <div className="service-url">{monitor.url.replace(/^https?:\/\//, '')}</div>
           </div>
         </div>
-
         <div className="uptime-bars">
           {bars.map((bar, j) => (
             <div
@@ -94,7 +78,6 @@ function ServiceRow({
             />
           ))}
         </div>
-
         <div className="service-meta">
           <div className={`status-label ${isUp ? 'status-up' : 'status-down'}`}>
             {isUp ? 'Online' : 'Outage'}
@@ -103,18 +86,7 @@ function ServiceRow({
             {monitor.latency > 0 ? `${monitor.latency}ms` : '\u2014'}
           </div>
         </div>
-
-        {!isUp && (
-          <button
-            onClick={handleNotifyAction}
-            disabled={notifying}
-            className="notify-btn"
-          >
-            {notifying ? 'Sent' : 'Notify'}
-          </button>
-        )}
       </motion.div>
-
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -153,7 +125,6 @@ function ServiceRow({
   );
 }
 
-/* ─── Page ───────────────────────────────────────────────────── */
 export default function StatusPage() {
   const [data, setData] = useState<MonitorResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,7 +151,6 @@ export default function StatusPage() {
         }
       }
     }
-
     setLoading(true);
     try {
       const results = await Promise.all(
@@ -196,19 +166,6 @@ export default function StatusPage() {
       console.error('Fetch failed', err);
     } finally {
       setLoading(false);
-    }
-  }, []);
-
-  const handleNotify = useCallback(async (m: MonitorResult) => {
-    try {
-      const res = await fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: m.name, status: m.status, latency: m.latency }),
-      });
-      if (!res.ok) throw new Error('Failed to send');
-    } catch (err) {
-      console.error('Notification failed', err);
     }
   }, []);
 
@@ -235,23 +192,25 @@ export default function StatusPage() {
   return (
     <>
       <div className="page-bg" />
+      <div className="cyber-grid" />
       <div className="page-wrapper">
         <div className="container">
-
-          {/* ── Header ────────────────────────────────────────── */}
           <motion.header
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             className="page-header"
           >
             <div className="header-left">
-              <div className="logo-mark" />
-              <div>
-                <h1 className="site-title">VexaNode</h1>
-                <p className="site-subtitle">Infrastructure Status</p>
-              </div>
+              <a href="https://vexanode.cloud" target="_blank" rel="noreferrer" className="logo-link">
+                <img src="/logo.png" alt="VexaNode" className="logo-image" />
+                <div>
+                  <div className="brand-text">
+                    Vexa<span className="brand-accent">Node</span>
+                  </div>
+                  <p className="site-subtitle">Infrastructure Status</p>
+                </div>
+              </a>
             </div>
-
             <div className="header-right">
               <div className={`overall-badge ${isAllUp ? 'badge-up' : data.length === 0 ? 'badge-neutral' : 'badge-down'}`}>
                 <span className={`badge-dot ${isAllUp ? 'dot-up' : 'dot-down'}`} />
@@ -263,7 +222,6 @@ export default function StatusPage() {
             </div>
           </motion.header>
 
-          {/* ── Summary Bar ───────────────────────────────────── */}
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -300,7 +258,6 @@ export default function StatusPage() {
             </div>
           </motion.div>
 
-          {/* ── Hero Status ───────────────────────────────────── */}
           <motion.section
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -330,25 +287,22 @@ export default function StatusPage() {
             </div>
           </motion.section>
 
-          {/* ── Services ──────────────────────────────────────── */}
           <section className="services-section">
             <div className="services-header">
               <h2 className="services-title">Core Infrastructure</h2>
               <span className="services-count">{upCount} / {data.length} Nodes Online</span>
             </div>
-
             <div className="services-list">
               {data.length === 0
                 ? [1, 2, 3, 4, 5].map((i) => (
                     <div key={i} className="skeleton" style={{ height: 60, borderRadius: 10 }} />
                   ))
                 : data.map((monitor, i) => (
-                    <ServiceRow key={monitor.url} monitor={monitor} index={i} onNotify={handleNotify} />
+                    <ServiceRow key={monitor.url} monitor={monitor} index={i} />
                   ))}
             </div>
           </section>
 
-          {/* ── Active Incidents ──────────────────────────────── */}
           <AnimatePresence>
             {!isAllUp && data.length > 0 && (
               <motion.section
@@ -369,24 +323,19 @@ export default function StatusPage() {
                           <p className="incident-message">System is currently unreachable from monitoring nodes.</p>
                         </div>
                       </div>
-                      <button onClick={() => handleNotify(m)} className="notify-btn outlined">
-                        Send Alert
-                      </button>
                     </div>
                   ))}
               </motion.section>
             )}
           </AnimatePresence>
 
-          {/* ── Footer ────────────────────────────────────────── */}
           <footer className="page-footer">
             <span>VexaNode Infrastructure</span>
             <span className="footer-divider" />
             <span>Automated Status Monitoring</span>
             <span className="footer-divider" />
-            <a href={`mailto:support@vexanode.cloud`} className="footer-link">Contact Support</a>
+            <a href="mailto:support@vexanode.cloud" className="footer-link">Contact Support</a>
           </footer>
-
         </div>
       </div>
     </>

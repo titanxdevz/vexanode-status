@@ -1,42 +1,58 @@
-# VexaNode Premium Status
+# VexaNode Status
 
-A stunning, high-performance status page built with Next.js and Framer Motion. Zero-database architecture for maximum reliability and ease of deployment.
+Real-time infrastructure monitoring for VexaNode services. Built with Next.js, Framer Motion, and styled with the VexaNode brand identity.
 
-## ✨ Features
+## Features
 
-- **Premium UI**: Dark mode, glassmorphism, and smooth Framer Motion animations.
-- **Infrastructure Focus**: Designed for high-end hosting and VPS providers.
-- **Live Monitoring**: Real-time status checks on every page load.
-- **Discord Webhooks**: Automatic notifications for outages using Discord's premium "Components V2" style.
-- **Zero Database**: Configuration-driven monitoring with lightweight file-based state tracking.
+- Live status monitoring with real-time checks
+- VexaNode brand UI (dark theme, cyan/blue accents, Orbitron typography)
+- Animated status indicators and sparkline uptime bars
+- JSON API endpoints for external consumers
+- Zero database — lightweight in-memory monitoring
 
-## 🚀 Getting Started
+## Quick Start
 
-### 1. Install Dependencies
 ```bash
 npm install
-```
-
-### 2. Configure Environment
-Create a `.env` file:
-```env
-DISCORD_WEBHOOK_URL="your-discord-webhook"
-CRON_KEY="your-secret-key"
-```
-
-### 3. Run
-```bash
 npm run dev
 ```
 
-## 🛠️ Configuration
+## Configuration
 
-Monitors are managed in `src/config/monitors.ts`. Simply add or remove URLs from the list.
+Edit `src/config/monitors.ts` to add/remove monitored services.
 
-## 🔔 Discord Notifications
+## API Endpoints
 
-To automate notifications, set up a cron job (GitHub Actions, Vercel Cron, or a local crontab) to hit the following endpoint every minute:
+### `GET /api/status`
+Returns live status for all configured monitors as JSON.
 
-`GET http://your-site.com/api/cron?key=your-secret-key`
+```json
+{
+  "success": true,
+  "timestamp": "2026-06-09T12:00:00.000Z",
+  "summary": {
+    "total": 5,
+    "online": 5,
+    "offline": 0,
+    "avgLatency": 24,
+    "availability": 100
+  },
+  "results": [
+    { "name": "Main Website", "url": "vexanode.cloud", "status": "UP", "latency": 24, "checkedAt": "..." }
+  ]
+}
+```
 
-The system will automatically detect status changes (Up ↔ Down) and send beautifully formatted logs to your Discord channel.
+### `GET /api/cron`
+Internal endpoint that checks all monitors and returns results. Useful for cron-based automation.
+
+### `POST /api/ping`
+Pings a single URL. Body: `{ "url": "https://example.com" }`. Returns `{ "status": "UP", "latency": 42 }`.
+
+## Cron Automation
+
+Set up a cron job to hit `/api/cron` every 60 seconds for continuous monitoring:
+
+```
+* * * * * curl https://your-status-page.vercel.app/api/cron
+```
