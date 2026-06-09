@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { MONITORS } from '@/config/monitors';
 
+let cached: { data: object | null; expiry: number } = { data: null, expiry: 0 };
+
 async function pingUrl(url: string) {
   const start = Date.now();
   try {
@@ -17,6 +19,12 @@ async function pingUrl(url: string) {
 }
 
 export async function GET() {
+  const now = Date.now();
+
+  if (cached.data && now < cached.expiry) {
+    return NextResponse.json(cached.data);
+  }
+
   const results = await Promise.all(
     MONITORS.map(async (config) => {
       const { status, latency } = await pingUrl(config.url);
@@ -32,7 +40,7 @@ export async function GET() {
 
   const onlineCount = results.filter((r) => r.status === 'UP').length;
 
-  return NextResponse.json({
+  const body = {
     success: true,
     timestamp: new Date().toISOString(),
     summary: {
@@ -47,5 +55,10 @@ export async function GET() {
         : 0,
     },
     results,
-  });
+    cached: false,
+  };
+
+  cached = { data: body, expiry: now + 60_000 };
+
+  return NextResponse.json(body);
 }

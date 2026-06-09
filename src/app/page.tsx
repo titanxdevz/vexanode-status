@@ -2,36 +2,11 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MONITORS } from '@/config/monitors';
-
 interface MonitorResult {
   name: string;
   url: string;
   status: 'UP' | 'DOWN';
   latency: number;
-}
-
-async function fetchStatus(url: string): Promise<{ status: 'UP' | 'DOWN'; latency: number }> {
-  const start = Date.now();
-  try {
-    const res = await fetch('/api/ping', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch {}
-  try {
-    const res = await fetch(url, { cache: 'no-store', mode: 'no-cors' });
-    const latency = Date.now() - start;
-    return { status: 'UP', latency };
-  } catch {
-    return { status: 'DOWN', latency: 0 };
-  }
 }
 
 function generateSparkline(status: 'UP' | 'DOWN') {
@@ -133,35 +108,13 @@ export default function StatusPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const runChecks = useCallback(async (force = false) => {
-    if (!force) {
-      const cached = localStorage.getItem('vexanode_status_cache');
-      if (cached) {
-        try {
-          const { results, timestamp } = JSON.parse(cached);
-          const age = (Date.now() - timestamp) / 1000;
-          if (age < 60) {
-            setData(results);
-            setLastCheck(new Date(timestamp));
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.error('Failed to parse cache', e);
-        }
-      }
-    }
+  const runChecks = useCallback(async () => {
     setLoading(true);
     try {
-      const results = await Promise.all(
-        MONITORS.map(async (m) => ({ ...m, ...(await fetchStatus(m.url)) }))
-      );
-      setData(results as MonitorResult[]);
-      setLastCheck(new Date());
-      localStorage.setItem('vexanode_status_cache', JSON.stringify({
-        results,
-        timestamp: Date.now()
-      }));
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const json = await res.json();
+      setData(json.results);
+      setLastCheck(new Date(json.timestamp));
     } catch (err) {
       console.error('Fetch failed', err);
     } finally {
@@ -216,7 +169,7 @@ export default function StatusPage() {
                 <span className={`badge-dot ${isAllUp ? 'dot-up' : 'dot-down'}`} />
                 {data.length === 0 ? 'Checking Systems' : isAllUp ? 'All Systems Operational' : 'Partial Outage'}
               </div>
-              <button className="refresh-btn" onClick={() => runChecks(true)} disabled={loading}>
+              <button className="refresh-btn" onClick={runChecks} disabled={loading}>
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
